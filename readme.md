@@ -22,19 +22,29 @@ The original MCP has 40+ specialized tools. This version has **2 tools**:
 
 ## Setup
 
-### 1. Install & Build
+### 1. Configure Claude Desktop
 
+Add to your Claude Desktop config (`claude_desktop_config.json`):
+
+**Option A: Via npm (recommended)**
+```json
+{
+  "mcpServers": {
+    "FigmaMCP": {
+      "command": "bunx",
+      "args": ["figma-mcp-lightweight@latest"]
+    }
+  }
+}
+```
+
+**Option B: From source**
 ```bash
 git clone https://github.com/halilc4/figma-mcp-lightweight.git
 cd figma-mcp-lightweight
 bun install
-bun run build      # macOS/Linux
-bun run build:win  # Windows
+bun run build
 ```
-
-### 2. Configure Claude Desktop
-
-Add to your Claude Desktop config (`claude_desktop_config.json`):
 
 ```json
 {
@@ -47,12 +57,12 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 }
 ```
 
-### 3. Setup Figma Plugin
+### 2. Setup Figma Plugin
 
 Import `src/claude_mcp_plugin/manifest.json` in Figma:
 Menu > Plugins > Development > Import plugin from manifest
 
-### 4. Connect
+### 3. Connect
 
 1. Start WebSocket server: `bun socket`
 2. Open plugin in Figma, copy channel ID
