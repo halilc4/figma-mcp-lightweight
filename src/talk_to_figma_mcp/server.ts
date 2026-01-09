@@ -19,9 +19,6 @@ import { connectToFigma } from "./utils/websocket";
 // Import tools registration function from tools/index.ts
 import { registerTools } from "./tools";
 
-// Import prompts registration function from prompts/index.ts
-import { registerPrompts } from "./prompts";
-
 /**
  * Initialize and start the MCP server
  */
@@ -32,9 +29,6 @@ async function main() {
     
     // Register all tools with the server
     registerTools(server);
-    
-    // Register all prompts with the server
-    registerPrompts(server);
     
     // Try to connect to Figma socket server
     try {

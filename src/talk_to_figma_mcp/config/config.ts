@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 // Argumentos de línea de comandos
 const args = process.argv.slice(2);
 const serverArg = args.find(arg => arg.startsWith('--server='));

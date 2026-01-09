@@ -107,7 +107,7 @@ export function connectToFigma(port: number = defaultPort) {
         if (
           myResponse.id &&
           pendingRequests.has(myResponse.id) &&
-          myResponse.result
+          (myResponse.result !== undefined || myResponse.error)
         ) {
           const request = pendingRequests.get(myResponse.id)!;
           clearTimeout(request.timeout);
@@ -116,9 +116,7 @@ export function connectToFigma(port: number = defaultPort) {
             logger.error(`Error from Figma: ${myResponse.error}`);
             request.reject(new Error(myResponse.error));
           } else {
-            if (myResponse.result) {
-              request.resolve(myResponse.result);
-            }
+            request.resolve(myResponse.result);
           }
 
           pendingRequests.delete(myResponse.id);
@@ -179,14 +177,6 @@ export async function joinChannel(channelName: string): Promise<void> {
     logger.error(`Failed to join channel: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
-}
-
-/**
- * Get the current channel the connection is joined to.
- * @returns The current channel name or null if not connected to any channel
- */
-export function getCurrentChannel(): string | null {
-  return currentChannel;
 }
 
 /**

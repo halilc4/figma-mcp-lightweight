@@ -500,7 +500,13 @@
         state.socket.send(
           JSON.stringify({
             id,
-            error: errorMessage,
+            type: "message",
+            channel: state.channel,
+            message: {
+              id,
+              result: null,
+              error: errorMessage,
+            },
           })
         );
       }

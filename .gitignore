@@ -36,3 +36,8 @@ yarn-error.log*
 # Temporary build directories
 temp-dxt/
 dxt-*/
+
+# Claude Code
+.claude/
+CLAUDE.md
+.ai-assistant/

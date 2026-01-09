@@ -171,6 +171,10 @@ async function handleCommand(command, params) {
       return await setEffects(params);
     case "set_effect_style_id":
       return await setEffectStyleId(params);
+    case "set_fill_style_id":
+        return await setFillStyleId(params);
+    case "set_stroke_style_id":
+      return await setStrokeStyleId(params);
     case "group_nodes":
       return await groupNodes(params);
     case "ungroup_nodes":
@@ -189,12 +193,48 @@ async function handleCommand(command, params) {
       return await createVector(params);
     case "create_line":
       return await createLine(params);
+    case "create_component":
+      return await createComponent(params);
+    case "create_component_from_node":
+      return await createComponentFromNode(params);
+    case "combine_as_variants":
+      return await combineAsVariants(params);
+    case "execute_code":
+      return await executeCode(params);
     default:
       throw new Error(`Unknown command: ${command}`);
   }
 }
 
 // Command implementations
+
+async function executeCode(params) {
+  const { code } = params;
+
+  if (!code || typeof code !== 'string') {
+    throw new Error("Missing or invalid code parameter");
+  }
+
+  try {
+    // AsyncFunction supports await natively
+    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+    const fn = new AsyncFunction('figma', code);
+    const result = await fn(figma);
+
+    // Basic serialization - let JSON.stringify handle it
+    return { success: true, result: JSON.stringify(result) };
+  } catch (error) {
+    // Return structured error for debugging
+    return {
+      success: false,
+      error: {
+        type: error.constructor.name,
+        message: error.message,
+        stack: error.stack
+      }
+    };
+  }
+}
 
 async function getDocumentInfo() {
   await figma.currentPage.loadAsync();
@@ -246,7 +286,30 @@ async function getNodeInfo(nodeId) {
     format: "JSON_REST_V1",
   });
 
-  return response.document;
+  // Add style IDs if available (not included in JSON_REST_V1 export)
+  const document = Object.assign({}, response.document);
+
+  console.log(`[getNodeInfo] Node type: ${node.type}`);
+  console.log(`[getNodeInfo] Has fillStyleId property: ${"fillStyleId" in node}`);
+  console.log(`[getNodeInfo] fillStyleId value:`, node.fillStyleId);
+
+  if ("fillStyleId" in node) {
+    document.fillStyleId = node.fillStyleId;
+  }
+  if ("strokeStyleId" in node) {
+    document.strokeStyleId = node.strokeStyleId;
+  }
+  if ("textStyleId" in node) {
+    document.textStyleId = node.textStyleId;
+  }
+  if ("effectStyleId" in node) {
+    document.effectStyleId = node.effectStyleId;
+  }
+
+  console.log(`[getNodeInfo] document.fillStyleId after assignment:`, document.fillStyleId);
+  console.log(`[getNodeInfo] Returning document:`, JSON.stringify(document));
+
+  return document;
 }
 
 async function getNodesInfo(nodeIds) {
@@ -848,6 +911,148 @@ async function createComponentInstance(params) {
     } else {
       throw new Error(`Error creating component instance: ${error.message}`);
     }
+  }
+}
+
+// Create a new empty component
+async function createComponent(params) {
+  const {
+    x = 0,
+    y = 0,
+    width = 100,
+    height = 100,
+    name = "Component",
+    parentId,
+  } = params || {};
+
+  try {
+    const component = figma.createComponent();
+    component.x = x;
+    component.y = y;
+    component.resize(width, height);
+    component.name = name;
+
+    // If parentId is provided, append to that node, otherwise append to current page
+    if (parentId) {
+      const parentNode = await figma.getNodeByIdAsync(parentId);
+      if (!parentNode) {
+        throw new Error(`Parent node not found with ID: ${parentId}`);
+      }
+      if (!("appendChild" in parentNode)) {
+        throw new Error(`Parent node does not support children: ${parentId}`);
+      }
+      parentNode.appendChild(component);
+    } else {
+      figma.currentPage.appendChild(component);
+    }
+
+    return {
+      id: component.id,
+      name: component.name,
+      key: component.key,
+      x: component.x,
+      y: component.y,
+      width: component.width,
+      height: component.height,
+      parentId: component.parent ? component.parent.id : undefined,
+    };
+  } catch (error) {
+    throw new Error(`Error creating component: ${error.message}`);
+  }
+}
+
+// Convert an existing node to a component
+async function createComponentFromNode(params) {
+  const { nodeId } = params || {};
+
+  if (!nodeId) {
+    throw new Error("Missing nodeId parameter");
+  }
+
+  try {
+    const node = await figma.getNodeByIdAsync(nodeId);
+    if (!node) {
+      throw new Error(`Node not found with ID: ${nodeId}`);
+    }
+
+    // Check if the node can be converted to a component (SceneNode)
+    if (!("parent" in node)) {
+      throw new Error(`Node cannot be converted to component: ${nodeId}`);
+    }
+
+    const component = figma.createComponentFromNode(node);
+
+    return {
+      id: component.id,
+      name: component.name,
+      key: component.key,
+      x: component.x,
+      y: component.y,
+      width: component.width,
+      height: component.height,
+      parentId: component.parent ? component.parent.id : undefined,
+    };
+  } catch (error) {
+    throw new Error(`Error creating component from node: ${error.message}`);
+  }
+}
+
+// Combine multiple components as variants (creates a ComponentSet)
+async function combineAsVariants(params) {
+  const { nodeIds, parentId } = params || {};
+
+  if (!nodeIds || !Array.isArray(nodeIds) || nodeIds.length === 0) {
+    throw new Error("Missing or invalid nodeIds parameter - must be an array of component IDs");
+  }
+
+  try {
+    // Get all the component nodes
+    const nodes = [];
+    for (const nodeId of nodeIds) {
+      const node = await figma.getNodeByIdAsync(nodeId);
+      if (!node) {
+        throw new Error(`Node not found with ID: ${nodeId}`);
+      }
+      if (node.type !== "COMPONENT") {
+        throw new Error(`Node ${nodeId} is not a component (type: ${node.type}). Only components can be combined as variants.`);
+      }
+      nodes.push(node);
+    }
+
+    // Determine parent - use provided parentId or default to currentPage
+    let parent;
+    if (parentId) {
+      parent = await figma.getNodeByIdAsync(parentId);
+      if (!parent) {
+        throw new Error(`Parent node not found with ID: ${parentId}`);
+      }
+      if (!("appendChild" in parent)) {
+        throw new Error(`Parent node does not support children: ${parentId}`);
+      }
+    } else {
+      parent = figma.currentPage;
+    }
+
+    // Combine components as variants
+    const componentSet = figma.combineAsVariants(nodes, parent);
+
+    return {
+      id: componentSet.id,
+      name: componentSet.name,
+      key: componentSet.key,
+      x: componentSet.x,
+      y: componentSet.y,
+      width: componentSet.width,
+      height: componentSet.height,
+      parentId: componentSet.parent ? componentSet.parent.id : undefined,
+      variantCount: componentSet.children.length,
+      defaultVariant: componentSet.defaultVariant ? {
+        id: componentSet.defaultVariant.id,
+        name: componentSet.defaultVariant.name,
+      } : null,
+    };
+  } catch (error) {
+    throw new Error(`Error combining components as variants: ${error.message}`);
   }
 }
 
@@ -3293,3 +3498,104 @@ async function createLine(params) {
     parentId: line.parent ? line.parent.id : undefined
   };
 }
+
+
+  // Set Fill Style ID Tool
+  async function setFillStyleId(params) {
+    const { nodeId, fillStyleId } = params || {};
+
+    if (!nodeId) {
+      throw new Error("Missing nodeId parameter");
+    }
+
+    if (!fillStyleId) {
+      throw new Error("Missing fillStyleId parameter");
+    }
+
+    try {
+      const node = await figma.getNodeByIdAsync(nodeId);
+      if (!node) {
+        throw new Error(`Node not found with ID: ${nodeId}`);
+      }
+
+      if (!("fillStyleId" in node)) {
+        throw new Error(`Node with ID ${nodeId} does not support fill styles`);
+      }
+
+      // Check if style exists locally, otherwise import by key
+      let resolvedStyleId = fillStyleId;
+      const localStyles =  await figma.getLocalPaintStylesAsync();
+      const styleExists = localStyles.some(s => s.id === fillStyleId);
+
+      if (!styleExists) {
+        // Treat fillStyleId as a key and import from library
+        try {
+          const importedStyle = await figma.importStyleByKeyAsync(fillStyleId);
+          resolvedStyleId = importedStyle.id;
+        } catch (importError) {
+          throw new Error(`Failed to import style with key ${fillStyleId}: ${importError.message}`);
+        }
+      }
+
+      // Apply fill style
+      await node.setFillStyleIdAsync(resolvedStyleId);
+
+      return {
+        id: node.id,
+        name: node.name,
+        fillStyleId: resolvedStyleId
+      };
+    } catch (error) {
+      throw new Error(`Error setting fill style: ${error.message}`);
+    }
+  }
+
+  // Set Stroke Style ID Tool
+  async function setStrokeStyleId(params) {
+    const { nodeId, strokeStyleId } = params || {};
+
+    if (!nodeId) {
+      throw new Error("Missing nodeId parameter");
+    }
+
+    if (!strokeStyleId) {
+      throw new Error("Missing strokeStyleId parameter");
+    }
+
+    try {
+      const node = await figma.getNodeByIdAsync(nodeId);
+      if (!node) {
+        throw new Error(`Node not found with ID: ${nodeId}`);
+      }
+
+      if (!("strokeStyleId" in node)) {
+        throw new Error(`Node with ID ${nodeId} does not support stroke styles`);
+      }
+
+      // Check if style exists locally, otherwise import by key
+      let resolvedStyleId = strokeStyleId;
+      const localStyles =  await figma.getLocalPaintStylesAsync();
+      const styleExists = localStyles.some(s => s.id === strokeStyleId);
+
+      if (!styleExists) {
+        // Treat strokeStyleId as a key and import from library
+        try {
+          const importedStyle = await figma.importStyleByKeyAsync(strokeStyleId);
+          resolvedStyleId = importedStyle.id;
+        } catch (importError) {
+          throw new Error(`Failed to import style with key ${strokeStyleId}: ${importError.message}`);
+        }
+      }
+
+      // Apply stroke style
+      await node.setStrokeStyleIdAsync(resolvedStyleId);
+
+      return {
+        id: node.id,
+        name: node.name,
+        strokeStyleId: resolvedStyleId
+      };
+    } catch (error) {
+      throw new Error(`Error setting stroke style: ${error.message}`);
+    }
+  }
